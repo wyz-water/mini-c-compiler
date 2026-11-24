@@ -5,31 +5,94 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class RegexToken:
     kind: str
-    value: str | None = None
+    value: str | frozenset[str] | None = None
 
+
+def parse_char_class(
+    pattern: str,
+    start: int
+) -> tuple[frozenset[str], int]:
+    """
+    解析从 '[' 开始的字符集合。
+
+    示例：
+        [a-c]   -> {'a', 'b', 'c'}
+        [0-9]   -> {'0', ..., '9'}
+        [a-zA-Z_] -> 大小写字母和下划线
+
+    返回：
+        (字符集合, 右括号后一个位置)
+    """
+
+    chars: set[str] = set()
+    i = start + 1
+
+    if i >= len(pattern) or pattern[i] == "]":
+        raise ValueError("Empty or incomplete character class")
+
+    # 第一阶段不支持否定字符集合，如 [^0-9]
+    if pattern[i] == "^":
+        raise ValueError("Negated character classes are not supported")
+
+    def read_char(pos: int) -> tuple[str, int]:
+        """读取字符集合中的一个字符，支持反斜杠转义。"""
+
+        if pos >= len(pattern) or pattern[pos] == "]":
+            raise ValueError("Invalid character class")
+
+        if pattern[pos] == "\\":
+            if pos + 1 >= len(pattern):
+                raise ValueError("Incomplete escape sequence")
+            return pattern[pos + 1], pos + 2
+
+        return pattern[pos], pos + 1
+
+    while i < len(pattern) and pattern[i] != "]":
+        first, i = read_char(i)
+
+        # 检查是否存在字符范围，例如 a-z
+        if (
+            i + 1 < len(pattern)
+            and pattern[i] == "-"
+            and pattern[i + 1] != "]"
+        ):
+            last, i = read_char(i + 1)
+
+            if ord(first) > ord(last):
+                raise ValueError(
+                    f"Invalid character range: {first}-{last}"
+                )
+
+            # 将范围展开为独立字符
+            for code in range(ord(first), ord(last) + 1):
+                chars.add(chr(code))
+
+        else:
+            chars.add(first)
+
+    if i >= len(pattern):
+        raise ValueError("Unclosed character class")
+
+    return frozenset(chars), i + 1
 
 
 def tokenize_regex(pattern: str) -> list[RegexToken]:
     """
-    将正则表达式拆分为 RegexToken 序列。
+    将正则表达式转换为 RegexToken 序列。
 
-    当前支持：
-        |  选择运算符
-        *  Kleene 闭包
-        () 分组
+    支持：
         普通字符
-        \\  转义字符
-
-    例如：
-        输入：a(b|c)*
-        输出：LITERAL(a), LPAREN, LITERAL(b),
-             OR, LITERAL(c), RPAREN, STAR
+        | 选择
+        * Kleene 闭包
+        () 分组
+        \\ 转义
+        [] 字符集合
     """
 
-    # 正则运算符与 Token 类型的对应关系
     operators = {
         "|": "OR",
         "*": "STAR",
+        "+": "PLUS",
         "(": "LPAREN",
         ")": "RPAREN",
     }
@@ -37,16 +100,13 @@ def tokenize_regex(pattern: str) -> list[RegexToken]:
     tokens: list[RegexToken] = []
     i = 0
 
-    # 从左到右扫描正则表达式
     while i < len(pattern):
         ch = pattern[i]
 
-        # 处理转义字符，例如 \* 表示普通字符 *
+        # 处理转义字符
         if ch == "\\":
             if i + 1 >= len(pattern):
-                raise ValueError(
-                    "Invalid regex: incomplete escape sequence"
-                )
+                raise ValueError("Incomplete escape sequence")
 
             tokens.append(
                 RegexToken("LITERAL", pattern[i + 1])
@@ -54,11 +114,22 @@ def tokenize_regex(pattern: str) -> list[RegexToken]:
             i += 2
             continue
 
-        # 判断是否为正则运算符
+        # 处理字符集合，例如 [a-zA-Z_]
+        if ch == "[":
+            char_set, next_pos = parse_char_class(pattern, i)
+
+            tokens.append(
+                RegexToken("CHAR_CLASS", char_set)
+            )
+
+            i = next_pos
+            continue
+
+        # 处理正则运算符
         if ch in operators:
             tokens.append(RegexToken(operators[ch]))
 
-        # 其他字符视为普通字符
+        # 普通字符
         else:
             tokens.append(RegexToken("LITERAL", ch))
 
@@ -104,7 +175,7 @@ def regex_to_postfix(pattern: str) -> list[RegexToken]:
         kind = token.kind
 
         # 1. 普通字符直接加入输出
-        if kind == "LITERAL":
+        if kind in {"LITERAL", "CHAR_CLASS"}:
             if not expecting_operand:
                 raise ValueError("Missing operator")
 
@@ -137,9 +208,11 @@ def regex_to_postfix(pattern: str) -> list[RegexToken]:
             expecting_operand = False
 
         # 4. 闭包运算符直接加入后缀输出
-        elif kind == "STAR":
+        elif kind in {"STAR", "PLUS"}:
             if expecting_operand:
-                raise ValueError("STAR requires an operand")
+                raise ValueError(
+                    f"{kind} requires an operand"
+                )
 
             output.append(token)
             expecting_operand = False
@@ -192,10 +265,20 @@ def insert_concat(tokens: list[RegexToken]) -> list[RegexToken]:
     result = []
 
     # 可以作为连接运算左侧的 Token 类型
-    end_types = {"LITERAL", "RPAREN", "STAR"}
+    end_types = {
+        "LITERAL",
+        "CHAR_CLASS",
+        "RPAREN",
+        "STAR",
+        "PLUS",
+    }
 
     # 可以作为连接运算右侧的 Token 类型
-    start_types = {"LITERAL", "LPAREN"}
+    start_types = {
+        "LITERAL",
+        "CHAR_CLASS",
+        "LPAREN",
+    }
 
     for i, current in enumerate(tokens):
 
