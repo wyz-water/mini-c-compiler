@@ -1,0 +1,42 @@
+
+[
+  {"kind": "INT", "pattern": "int"},
+  {"kind": "IF", "pattern": "if"},
+  {"kind": "ELSE", "pattern": "else"},
+  {"kind": "WHILE", "pattern": "while"},
+  {"kind": "READ", "pattern": "read"},
+  {"kind": "WRITE", "pattern": "write"},
+
+  {
+    "kind": "IDENT",
+    "pattern": "[a-zA-Z_][a-zA-Z0-9_]*"
+  },
+  {"kind": "NUMBER", "pattern": "[0-9]+"},
+
+  {"kind": "LE", "pattern": "<="},
+  {"kind": "GE", "pattern": ">="},
+  {"kind": "EQ", "pattern": "=="},
+  {"kind": "NE", "pattern": "!="},
+
+  {"kind": "PLUS", "pattern": "\\+"},
+  {"kind": "MINUS", "pattern": "-"},
+  {"kind": "MUL", "pattern": "\\*"},
+  {"kind": "DIV", "pattern": "/"},
+
+  {"kind": "LT", "pattern": "<"},
+  {"kind": "GT", "pattern": ">"},
+  {"kind": "ASSIGN", "pattern": "="},
+
+  {"kind": "SEMI", "pattern": ";"},
+  {"kind": "COMMA", "pattern": ","},
+  {"kind": "LPAREN", "pattern": "\\("},
+  {"kind": "RPAREN", "pattern": "\\)"},
+  {"kind": "LBRACE", "pattern": "{"},
+  {"kind": "RBRACE", "pattern": "}"},
+
+  {
+    "kind": "WHITESPACE",
+    "pattern": "[ \t\r\n]+",
+    "skip": true
+  }
+]
